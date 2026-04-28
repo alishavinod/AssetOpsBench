@@ -4,7 +4,11 @@ Heavy ML dependencies (tsfm_public, transformers, torch) are imported lazily
 so the module can be imported even when they are absent.
 """
 
+
 from __future__ import annotations
+import contextlib
+import torch
+from .profiler import get_profiler
 
 import math
 import os
@@ -225,6 +229,7 @@ def _get_ttm_hf_inference(
     tsp=None,
     forecast_horizon=-1,
 ):
+    profiler = get_profiler()
     from tsfm_public import TinyTimeMixerForPrediction
     from tsfm_public.toolkit.time_series_preprocessor import (
         TimeSeriesPreprocessor,
@@ -252,63 +257,79 @@ def _get_ttm_hf_inference(
     ):
         column_specifiers["id_columns"] = dataset_config_dictionary["id_columns"]
 
-    encode_categorical = False
-    tsp = TimeSeriesPreprocessor(
-        **column_specifiers,
-        scaling=scaling,
-        encode_categorical=encode_categorical,
-        prediction_length=forecast_horizon,
-        context_length=context_length,
-    )
-    dataset_dic = get_datasets(
-        tsp,
-        df_dataframe,
-        split_config={"train": 1.0, "test": 0.0},
-        use_frequency_token=True,
-    )
-    dataset_inference = dataset_dic[0]
+    with (profiler.measure("preprocessing") if profiler else contextlib.nullcontext()):
+        encode_categorical = False
+        tsp = TimeSeriesPreprocessor(
+            **column_specifiers,
+            scaling=scaling,
+            encode_categorical=encode_categorical,
+            prediction_length=forecast_horizon,
+            context_length=context_length,
+        )
+        dataset_dic = get_datasets(
+            tsp,
+            df_dataframe,
+            split_config={"train": 1.0, "test": 0.0},
+            use_frequency_token=True,
+        )
+        dataset_inference = dataset_dic[0]
 
-    model = TinyTimeMixerForPrediction.from_pretrained(
-        model_checkpoint, prediction_filter_length=forecast_horizon
-    )
-    args = TrainingArguments(output_dir="./output", logging_dir="./log")
-    trainer = Trainer(model=model, args=args, eval_dataset=dataset_inference)
+    with (profiler.measure("model_loading") if profiler else contextlib.nullcontext()):
+        model = TinyTimeMixerForPrediction.from_pretrained(
+            model_checkpoint, prediction_filter_length=forecast_horizon
+        )
+        args = TrainingArguments(output_dir="./output", logging_dir="./log")
+        trainer = Trainer(model=model, args=args, eval_dataset=dataset_inference)
 
-    ix_target_features = list(
-        np.arange(len(dataset_config_dictionary["column_specifiers"]["target_columns"]))
-    )
+        ix_target_features = list(
+            np.arange(len(dataset_config_dictionary["column_specifiers"]["target_columns"]))
+        )
+    with (profiler.measure("ttm_forward") if profiler else contextlib.nullcontext()):
+        with torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            with_stack=False,
+            record_shapes=True,
+        ) as prof:
+            outputs = trainer.predict(dataset_inference)
 
-    outputs = trainer.predict(dataset_inference)
-    y_pred = outputs.predictions[0][:, :forecast_horizon, ix_target_features]
+        with open("/tmp/torch_prof_output.txt", "w") as f:
+            f.write(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
+            f.write("\n\n--- CPU ---\n")
+            f.write(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
+        
+        y_pred = outputs.predictions[0][:, :forecast_horizon, ix_target_features]
+    with (profiler.measure("postprocessing") if profiler else contextlib.nullcontext()):
+        if tsp.scaling:
+            for ixf in range(y_pred.shape[1]):
+                y_pred[:, ixf, :] = tsp.target_scaler_dict["0"].inverse_transform(
+                    y_pred[:, ixf, :]
+                )
 
-    if tsp.scaling:
-        for ixf in range(y_pred.shape[1]):
-            y_pred[:, ixf, :] = tsp.target_scaler_dict["0"].inverse_transform(
-                y_pred[:, ixf, :]
-            )
+        timestamps_list = []
+        timestamps_prediction_list = []
+        for i in range(len(dataset_inference)):
+            if "timestamp" in dataset_inference[i]:
+                timestamps_list.append(dataset_inference[i]["timestamp"])
+                timestamp_forecast = create_timestamps(
+                    last_timestamp=dataset_inference[i]["timestamp"],
+                    time_sequence=df_dataframe[
+                        column_specifiers["timestamp_column"]
+                    ].values,
+                    periods=forecast_horizon,
+                )
+                timestamps_prediction_list.append(timestamp_forecast)
 
-    timestamps_list = []
-    timestamps_prediction_list = []
-    for i in range(len(dataset_inference)):
-        if "timestamp" in dataset_inference[i]:
-            timestamps_list.append(dataset_inference[i]["timestamp"])
-            timestamp_forecast = create_timestamps(
-                last_timestamp=dataset_inference[i]["timestamp"],
-                time_sequence=df_dataframe[
-                    column_specifiers["timestamp_column"]
-                ].values,
-                periods=forecast_horizon,
-            )
-            timestamps_prediction_list.append(timestamp_forecast)
-
-    output: dict = {
-        "target_columns": dataset_config_dictionary["column_specifiers"][
-            "target_columns"
-        ],
-        "target_prediction": y_pred,
-        "timestamp": timestamps_list,
-        "timestamp_prediction": timestamps_prediction_list,
-    }
+        output: dict = {
+            "target_columns": dataset_config_dictionary["column_specifiers"][
+                "target_columns"
+            ],
+            "target_prediction": y_pred,
+            "timestamp": timestamps_list,
+            "timestamp_prediction": timestamps_prediction_list,
+        }
 
     inverse_transforms = []
     if scaling:
