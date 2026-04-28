@@ -23,6 +23,9 @@ Required environment variables (path resolution):
 
 from __future__ import annotations
 
+import contextlib
+from .profiler import get_profiler, init_global_profiler
+
 import json
 import logging
 import os
@@ -112,7 +115,11 @@ mcp = FastMCP("tsfm")
 
 # ── Static tools ──────────────────────────────────────────────────────────────
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def get_ai_tasks() -> AITasksResult:
     """Returns the list of supported AI task types for time-series analysis.
@@ -122,7 +129,11 @@ def get_ai_tasks() -> AITasksResult:
     """
     return AITasksResult(tasks=[AITaskEntry(**t) for t in _AI_TASKS])
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def get_tsfm_models() -> TSFMModelsResult:
     """Returns the list of available pre-trained TinyTimeMixer (TTM) model checkpoints.
@@ -135,7 +146,11 @@ def get_tsfm_models() -> TSFMModelsResult:
 
 # ── TSFM Forecasting (zero-shot inference) ────────────────────────────────────
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def run_tsfm_forecasting(
     dataset_path: str,
@@ -168,6 +183,7 @@ def run_tsfm_forecasting(
         autoregressive_modeling: Use autoregressive inference when True.
         include_dataquality_summary: Attach a data-quality report to the result.
     """
+    profiler = get_profiler() 
     if not dataset_path.strip():
         return ErrorResult(error="dataset_path is required")
     if not target_columns:
@@ -190,15 +206,17 @@ def run_tsfm_forecasting(
     )
 
     try:
-        data_df = _read_ts_data(dataset_path, dataset_config_dictionary=dataset_config)
-        with open(model_checkpoint + "/config.json") as _f:
-            model_config = json.load(_f)
+        with (profiler.measure("data_loading") if profiler else contextlib.nullcontext()):
 
-        output_data_quality = _tsfm_data_quality_filter(
-            data_df, dataset_config, model_config, task="inference"
-        )
-        data_df = output_data_quality["data"]
-        dataset_config = output_data_quality["dataset_config_dictionary"]
+            data_df = _read_ts_data(dataset_path, dataset_config_dictionary=dataset_config)
+            with open(model_checkpoint + "/config.json") as _f:
+                model_config = json.load(_f)
+
+            output_data_quality = _tsfm_data_quality_filter(
+                data_df, dataset_config, model_config, task="inference"
+            )
+            data_df = output_data_quality["data"]
+            dataset_config = output_data_quality["dataset_config_dictionary"]
 
         inference_result_dict_data: dict = {
             "target_prediction": [],
@@ -253,6 +271,12 @@ def run_tsfm_forecasting(
         if include_dataquality_summary
         else None
     )
+    if profiler:
+        profiler.log_and_reset(extra={
+            "tool": "run_tsfm_forecasting",
+            "model": os.path.basename(model_checkpoint),
+            "n_sensors": len(target_columns),
+        })
     return ForecastingResult(
         status="success",
         results_file=results_file,
@@ -263,7 +287,11 @@ def run_tsfm_forecasting(
 
 # ── TSFM Finetuning ───────────────────────────────────────────────────────────
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def run_tsfm_finetuning(
     dataset_path: str,
@@ -399,7 +427,11 @@ def run_tsfm_finetuning(
 
 # ── TSAD (conformal anomaly detection on top of TSFM forecasts) ──────────────
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def run_tsad(
     dataset_path: str,
@@ -507,7 +539,11 @@ def run_tsad(
 
 # ── Integrated TSAD (forecasting + anomaly detection in one call) ─────────────
 
-
+init_global_profiler(
+    run_name="baseline_fp32",
+    config={"precision": "fp32", "opt_cache": False, "opt_bf16": False,
+            "opt_batch": False, "opt_int8": False}
+)
 @mcp.tool()
 def run_integrated_tsad(
     dataset_path: str,
