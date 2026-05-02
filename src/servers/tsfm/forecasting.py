@@ -27,6 +27,7 @@ from .dataquality import (
 )
 from .io import _make_json_compatible
 from .metrics import _METRICS_FORECAST, _TSFREQUENCY_TOLERANCE, _freq_token_to_minutes
+from .model_cache import get_compiled_model
 
 
 # ── TSFM data quality filter ──────────────────────────────────────────────────
@@ -128,27 +129,43 @@ def _tsfm_data_quality_filter(
 
 
 def _get_gt_and_predictions(
-    trainer, dataset, ix_target_features, inverse_transforms=None
+    model, dataset, ix_target_features, inverse_transforms=None
 ):
     if inverse_transforms is None:
         inverse_transforms = []
-    outputs = trainer.predict(dataset)
+     # --- 1. Batch all samples from the dataset ---
+    all_inputs = {}
+    for sample in dataset:
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                all_inputs.setdefault(k, []).append(v)
+
+    batched_inputs = {k: torch.stack(vs) for k, vs in all_inputs.items()}
+
+    # --- 2. Run inference directly ---
+    with torch.no_grad():
+        outputs = model(**batched_inputs)
+
+    # outputs.prediction_outputs shape: [N, prediction_length, num_channels]
+    raw_predictions = outputs.prediction_outputs.numpy()
+
+    # --- 3. Reconstruct what Trainer used to give you ---
     target_value_list = []
     pred_value_list = []
-    timestamp_id_value_dic: dict = {}
-    for i in range(len(dataset)):
-        aux = dataset[i]["future_values"][:, ix_target_features].detach().numpy()
-        if "timestamp" in dataset[i]:
-            timestamp_id_value_dic.setdefault("timestamp", []).append(
-                dataset[i]["timestamp"]
-            )
-        if "id" in dataset[i]:
-            timestamp_id_value_dic.setdefault("id", []).extend(list(dataset[i]["id"]))
+    timestamp_id_value_dic = {}
+
+    for i, sample in enumerate(dataset):
+        # Ground truth — future_values for the target features
+        aux = sample["future_values"][:, ix_target_features].numpy()
+
+        if "timestamp" in sample:
+            timestamp_id_value_dic.setdefault("timestamp", []).append(sample["timestamp"])
+        if "id" in sample:
+            timestamp_id_value_dic.setdefault("id", []).extend(list(sample["id"]))
         target_value_list.append(aux)
         forecast_h = aux.shape[0]
-        aux_pred = outputs.predictions[0][
-            i, :forecast_h, ix_target_features
-        ].transpose()
+        # Slice predictions to match ground truth horizon and target features
+        aux_pred = raw_predictions[i, :forecast_h, ix_target_features].T
         pred_value_list.append(aux_pred)
     y_gt = np.array(target_value_list)
     y_pred = np.array(pred_value_list)
@@ -275,11 +292,11 @@ def _get_ttm_hf_inference(
         dataset_inference = dataset_dic[0]
 
     with (profiler.measure("model_loading") if profiler else contextlib.nullcontext()):
-        model = TinyTimeMixerForPrediction.from_pretrained(
-            model_checkpoint, prediction_filter_length=forecast_horizon
-        )
+        model = get_compiled_model("ttm_96_28")
+        if model is None:
+            raise RuntimeError(f"Model not pre-loaded: {"ttm_96_28"}")
         args = TrainingArguments(output_dir="./output", logging_dir="./log")
-        trainer = Trainer(model=model, args=args, eval_dataset=dataset_inference)
+        # trainer = Trainer(model=model, args=args, eval_dataset=dataset_inference)
 
         ix_target_features = list(
             np.arange(len(dataset_config_dictionary["column_specifiers"]["target_columns"]))
@@ -293,14 +310,24 @@ def _get_ttm_hf_inference(
             with_stack=False,
             record_shapes=True,
         ) as prof:
-            outputs = trainer.predict(dataset_inference)
+            # outputs = trainer.predict(dataset_inference)
+            all_inputs = {}
+            for sample in dataset_inference:
+                for k, v in sample.items():
+                    if isinstance(v, torch.Tensor):
+                        all_inputs.setdefault(k, []).append(v)
 
+            # Stack into batches
+            batched_inputs = {k: torch.stack(vs) for k, vs in all_inputs.items()}
+            with torch.no_grad():
+                outputs = model(**batched_inputs)
+                y_pred = outputs.prediction_outputs[:, :forecast_horizon, ix_target_features]
         with open("/tmp/torch_prof_output.txt", "w") as f:
             f.write(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
             f.write("\n\n--- CPU ---\n")
             f.write(prof.key_averages().table(sort_by="self_cpu_time_total", row_limit=10))
         
-        y_pred = outputs.predictions[0][:, :forecast_horizon, ix_target_features]
+        # y_pred = outputs.predictions[0][:, :forecast_horizon, ix_target_features]
     with (profiler.measure("postprocessing") if profiler else contextlib.nullcontext()):
         if tsp.scaling:
             for ixf in range(y_pred.shape[1]):
@@ -336,7 +363,7 @@ def _get_ttm_hf_inference(
         inverse_transforms.append(tsp.target_scaler_dict["0"].inverse_transform)
 
     y_gt, y_pred_eval, timestamp_id_value_dic = _get_gt_and_predictions(
-        trainer,
+        model,
         dataset_inference,
         ix_target_features=ix_target_features,
         inverse_transforms=inverse_transforms,
@@ -641,7 +668,6 @@ def _finetune_ttm_hf(
                 tsp.target_scaler_dict["0"].inverse_transform
             )
         y_gt, y_pred_eval, _ = _get_gt_and_predictions(
-            finetune_forecast_trainer,
             dataset_eval[dataset_key],
             ix_target_features=ix_target_features,
             inverse_transforms=inverse_transforms_eval,
