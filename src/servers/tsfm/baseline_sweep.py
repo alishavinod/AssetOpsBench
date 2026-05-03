@@ -1,14 +1,8 @@
 """
-baseline_sweep_v3.py — Baseline sweep mirroring scenario 216 structure.
-
-Scenario 216 forecasts one target column using N conditional columns as inputs.
-We mirror this exactly using Chiller 6 data:
-  - target:     Chiller 6 Tonnage
-  - timestamp:  timestamp
-  - conditionals: other sensor columns (scaled 0, 1, 4, 8)
+baseline_sweep_v2.py — Final baseline sweep via plan-execute.
 
 Run from repo root:
-    python baseline_sweep_v3.py
+    python baseline_sweep_v2.py
 """
 
 import os
@@ -23,69 +17,73 @@ import wandb
 
 DATASET_PATH = "src/tmp/assetopsbench/sample_data/chiller6_june2020_sensordata_couchdb.csv"
 REPO_ROOT = os.path.expanduser("~/AssetOpsBench")
-TIMESTAMP_COL = "timestamp"
-TARGET_COL = "Chiller 6 Tonnage"
-
-ALL_CONDITIONALS = [
-    "Chiller 6 Power Input",
-    "Chiller 6 Supply Temperature",
-    "Chiller 6 Return Temperature",
-    "Chiller 6 Condenser Water Flow",
-    "Chiller 6 Chiller Efficiency",
-    "Chiller 6 Chiller % Loaded",
-    "Chiller 6 Condenser Water Return To Tower Temperature",
-    "Chiller 6 Liquid Refrigerant Evaporator Temperature",
-]
 
 SENSOR_COUNTS = {
-    1: [],
-    2: ALL_CONDITIONALS[:1],
-    5: ALL_CONDITIONALS[:4],
-    9: ALL_CONDITIONALS[:8],
+    1: ["Chiller 6 Tonnage"],
+    2: ["Chiller 6 Tonnage", "Chiller 6 Power Input"],
+    5: ["Chiller 6 Tonnage", "Chiller 6 Power Input", "Chiller 6 Supply Temperature",
+        "Chiller 6 Return Temperature", "Chiller 6 Condenser Water Flow"],
+    9: ["Chiller 6 Tonnage", "Chiller 6 Power Input", "Chiller 6 Supply Temperature",
+        "Chiller 6 Return Temperature", "Chiller 6 Condenser Water Flow",
+        "Chiller 6 Chiller Efficiency", "Chiller 6 Chiller % Loaded",
+        "Chiller 6 Setpoint Temperature",
+        "Chiller 6 Condenser Water Return To Tower Temperature"],
 }
 
-
-def build_query(conditional_columns: list) -> str:
-    all_cols = [TARGET_COL] + conditional_columns
-    sensor_str = " and ".join(f"'{s}'" for s in all_cols)
-    return (
-        f"Run TSFMAgent forecasting on '{DATASET_PATH}' "
-        f"using model_checkpoint 'ttm_96_28', "
-        f"timestamp_column '{TIMESTAMP_COL}', "
-        f"target_columns {sensor_str}, "
-        f"forecast_horizon 96, "
-        f"frequency_sampling '15_minutes'"
-    )
+def build_query(sensors: list) -> str:
+    target = sensors[0]
+    conditionals = sensors[1:]
+    cond_str = ", ".join(f"'{s}'" for s in conditionals) if conditionals else ""
+    query = f"Forecast '{target}' using data in '{DATASET_PATH}'. Use parameter 'timestamp' as a timestamp."
+    if cond_str:
+        query += f" Use the following parameters as inputs {cond_str}"
+    return query
 
 
-def run_once(conditional_columns: list) -> dict | None:
+def run_once(sensors: list) -> dict | None:
     result = subprocess.run(
-        ["uv", "run", "plan-execute", build_query(conditional_columns)],
+        ["uv", "run", "plan-execute", build_query(sensors)],
         capture_output=True, text=True, cwd=REPO_ROOT,
         env={**os.environ, "DISABLE_WANDB_INIT": "true"},
     )
     success = (
-        "Forecasting complete" in result.stdout
-        or "success" in result.stdout.lower()
+        "successful" in result.stdout.lower()
+        or "forecasting complete" in result.stdout.lower()
+        or "forecast results are saved" in result.stdout.lower()
     )
     if not success:
         return None
-    try:
-        with open(os.path.join(REPO_ROOT, "wandb", "latest-run", "files", "wandb-summary.json")) as f:
-            s = json.load(f)
-        return {k: v for k, v in s.items() if k.startswith("latency/") or k.startswith("vram/")}
-    except Exception:
-        return None
+    
+    # Parse profiler output from stderr
+    import re
+    metrics = {}
+    patterns = {
+        "latency/data_loading_ms": r"data_loading\s+([\d.]+) ms",
+        "latency/preprocessing_ms": r"preprocessing\s+([\d.]+) ms",
+        "latency/model_loading_ms": r"model_loading\s+([\d.]+) ms",
+        "latency/ttm_forward_ms": r"ttm_forward\s+([\d.]+) ms",
+        "latency/postprocessing_ms": r"postprocessing\s+([\d.]+) ms",
+        "latency/total_ms": r"TOTAL\s+([\d.]+) ms",
+        "vram/ttm_forward_mb": r"ttm_forward\s+[\d.]+ ms\s+([\d.]+) MB",
+    }
+    for key, pattern in patterns.items():
+        match = re.search(pattern, result.stderr)
+        if match:
+            metrics[key] = float(match.group(1))
+    
+    return metrics if metrics else None
 
 
-def avg(conditional_columns: list, n: int) -> dict | None:
+def avg(sensors: list, n: int) -> dict | None:
+    # warmup
     print("    warmup...", end=" ", flush=True)
-    run_once(conditional_columns)
+    run_once(sensors)
     print("done")
+    # measured runs
     results = []
     for i in range(n):
         print(f"    run {i+1}/{n}...", end=" ", flush=True)
-        r = run_once(conditional_columns)
+        r = run_once(sensors)
         if r:
             results.append(r)
             print(f"{r['latency/ttm_forward_ms']:.0f}ms")
@@ -100,34 +98,22 @@ def avg(conditional_columns: list, n: int) -> dict | None:
 if __name__ == "__main__":
     wandb.init(
         project="hpml-tsfm-optimization",
-        name="baseline_fp32_scenario216_style",
-        config={
-            "opt": "baseline",
-            "precision": "fp32",
-            "model": "ttm_96_28",
-            "target": TARGET_COL,
-            "dataset": "chiller6_june2020",
-            "structure": "scenario_216_mirror",
-        },
+        name="baseline_fp32_final",
+        config={"opt": "baseline", "precision": "fp32", "model": "ttm_96_28"},
         settings=wandb.Settings(silent=True, console="off"),
     )
 
-    print("Baseline sweep — scenario 216 style (warm, 3 runs each)")
-    print(f"Target: {TARGET_COL}")
-    print(f"Dataset: {DATASET_PATH}\n")
-
-    for n, conditionals in SENSOR_COUNTS.items():
-        print(f"  n_sensors={n} (target + {len(conditionals)} conditionals):")
-        r = avg(conditionals, n=3)
+    print("\n=== n_sensors scaling (warm, 3 runs each) ===")
+    for n, sensors in SENSOR_COUNTS.items():
+        print(f"\n  n_sensors={n}:")
+        r = avg(sensors, n=3)
         if not r:
-            print(f"  → all runs failed, skipping")
             continue
-        print(f"ttm_forward: {r['latency/ttm_forward_ms']:.0f}ms | "
+        print(f"  → ttm_forward: {r['latency/ttm_forward_ms']:.0f}ms | "
               f"model_loading: {r['latency/model_loading_ms']:.0f}ms | "
               f"vram: {r.get('vram/ttm_forward_mb', 0):.0f}MB")
         wandb.log({
             "n_sensors/n_sensors":        n,
-            "n_sensors/n_conditionals":   len(conditionals),
             "n_sensors/ttm_forward_ms":   r["latency/ttm_forward_ms"],
             "n_sensors/model_loading_ms": r["latency/model_loading_ms"],
             "n_sensors/data_loading_ms":  r["latency/data_loading_ms"],
@@ -136,4 +122,5 @@ if __name__ == "__main__":
         })
 
     wandb.finish()
+    print("\n=== Done ===")
     print("https://wandb.ai/av3311-columbia-university/hpml-tsfm-optimization")
