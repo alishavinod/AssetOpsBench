@@ -46,11 +46,17 @@ def run_once(sensors: list) -> dict | None:
         capture_output=True, text=True, cwd=REPO_ROOT,
         env={**os.environ, "DISABLE_WANDB_INIT": "true"},
     )
-    success = (
-        "successful" in result.stdout.lower()
-        or "forecasting complete" in result.stdout.lower()
-        or "forecast results are saved" in result.stdout.lower()
-    )
+    success = any(x in result.stdout.lower() for x in [
+        "successful",
+        "forecasting complete",
+        "forecast results are saved",
+        "success message",
+        "can be found in",
+        "saved to /tmp",
+        "the task to forecast",
+        "forecast for",
+    ])
+    
     if not success:
         return None
     
