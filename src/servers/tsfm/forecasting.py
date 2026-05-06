@@ -134,20 +134,25 @@ def _get_gt_and_predictions(
     if inverse_transforms is None:
         inverse_transforms = []
      # --- 1. Batch all samples from the dataset ---
+    # --- 1. Batch all samples from the dataset ---
     all_inputs = {}
     for sample in dataset:
         for k, v in sample.items():
             if isinstance(v, torch.Tensor):
                 all_inputs.setdefault(k, []).append(v)
 
-    batched_inputs = {k: torch.stack(vs) for k, vs in all_inputs.items()}
+    # FIX 1: Send the stacked tensors to the GPU
+    # You can dynamically grab the model's device here
+    device = next(model.parameters()).device 
+    batched_inputs = {k: torch.stack(vs).to(device) for k, vs in all_inputs.items()}
 
     # --- 2. Run inference directly ---
     with torch.no_grad():
         outputs = model(**batched_inputs)
 
+    # FIX 2: Move the prediction tensor back to the CPU before calling .numpy()
     # outputs.prediction_outputs shape: [N, prediction_length, num_channels]
-    raw_predictions = outputs.prediction_outputs.numpy()
+    raw_predictions = outputs.prediction_outputs.cpu().numpy()
 
     # --- 3. Reconstruct what Trainer used to give you ---
     target_value_list = []
@@ -293,6 +298,9 @@ def _get_ttm_hf_inference(
 
     with (profiler.measure("model_loading") if profiler else contextlib.nullcontext()):
         model = get_compiled_model("ttm_96_28")
+        device = torch.device("cuda" )
+        model.to(device) 
+        
         if model is None:
             raise RuntimeError(f"Model not pre-loaded: {"ttm_96_28"}")
         args = TrainingArguments(output_dir="./output", logging_dir="./log")
@@ -317,11 +325,15 @@ def _get_ttm_hf_inference(
                     if isinstance(v, torch.Tensor):
                         all_inputs.setdefault(k, []).append(v)
 
-            # Stack into batches
-            batched_inputs = {k: torch.stack(vs) for k, vs in all_inputs.items()}
+            # THE FIX IS HERE: Add .to(device) so inputs match the model's location
+            batched_inputs = {k: torch.stack(vs).to(device) for k, vs in all_inputs.items()}
+            
             with torch.no_grad():
+                # Now both model and batched_inputs are on 'cuda'
                 outputs = model(**batched_inputs)
-                y_pred = outputs.prediction_outputs[:, :forecast_horizon, ix_target_features]
+                
+                # Move the prediction back to the CPU for serialization
+                y_pred = outputs.prediction_outputs[:, :forecast_horizon, ix_target_features].cpu()
         with open("/tmp/torch_prof_output.txt", "w") as f:
             f.write(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
             f.write("\n\n--- CPU ---\n")
