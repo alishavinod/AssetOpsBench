@@ -24,7 +24,18 @@ dependencies = [
     "litellm>=1.0",
     "python-dotenv>=1.0",
     "scipy>=1.10.0",
+    "wandb>=0.26.1",
+    "torch==2.6.0+cu124",
+    "torchvision==0.21.0+cu124",
+    "torchaudio==2.6.0+cu124",
+    "granite-tsfm",
 ]
+
+[[tool.uv.index]]
+url = "https://download.pytorch.org/whl/cu124"
+
+[tool.uv.sources]
+granite-tsfm = { git = "https://github.com/ibm-granite/granite-tsfm.git" }
 
 [project.scripts]
 plan-execute = "agent.cli:main"
@@ -49,9 +60,6 @@ tsfm = [
     "transformers>=4.40",
 ]
 
-[tool.uv]
-package = true
-
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 norecursedirs = ["src/tmp"]
@@ -59,3 +67,11 @@ filterwarnings = [
     "ignore:Core Pydantic V1 functionality:UserWarning",
 ]
 
+[tool.uv]
+package = true
+index-strategy = "unsafe-best-match"
+override-dependencies = [
+    "torch==2.6.0+cu124",
+    "torchvision==0.21.0+cu124",
+    "torchaudio==2.6.0+cu124"
+]
