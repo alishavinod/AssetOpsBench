@@ -241,6 +241,7 @@ def _get_performance(
         return pd_performance, pd_prediction
     return pd_performance
 
+torch.set_float32_matmul_precision('high')
 
 def _get_ttm_hf_inference(
     df_dataframe,
@@ -329,8 +330,8 @@ def _get_ttm_hf_inference(
             batched_inputs = {k: torch.stack(vs).to(device) for k, vs in all_inputs.items()}
             
             with torch.no_grad():
-                # Now both model and batched_inputs are on 'cuda'
-                outputs = model(**batched_inputs)
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    outputs = model(**batched_inputs)
                 
                 # Move the prediction back to the CPU for serialization
                 y_pred = outputs.prediction_outputs[:, :forecast_horizon, ix_target_features].cpu()
