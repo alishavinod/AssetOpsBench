@@ -12,14 +12,14 @@
 - **Members:**
   - Jonathan Ang ma4624 — model caching + bf16
   - Alisha Vinod av3311 — bf16 + baseline results
-  - Thomas Ajai · tl3444 — moving to gpus
+  - Thomas Ajai · tl3444 — gpu integration
   - Sanjaii Vijayakumar · sv2851 — 
 
 ## Submission
 
 - **GitHub repository:** [https://github.com/alishavinod/AssetOpsBench/tree/baseline](https://github.com/alishavinod/AssetOpsBench/tree/baseline)
 - **Final report:** [`deliverables/HPML_Final_Report.pdf`](deliverables/HPML_Final_Report.pdf)
-- **Final presentation:** [`deliverables/HPML_Final_Presentation.pptx`](/home/Family/teamHPML/deliverables/HPML_Team27_Final_Project_Presentation.pdf)
+- **Final presentation:** [`deliverables/HPML_Final_Presentation.pptx`](/deliverables/HPML_Team27_Final_Project_Presentation.pdf)
 - **Experiment-tracking dashboard:** [https://wandb.ai/av3311-columbia-university/hpml-tsfm-optimization/workspace?nw=nwuserav3311]
 
 The final report PDF and the presentation file are checked into the `deliverables/` folder of this repository **and** uploaded to CourseWorks.
@@ -28,7 +28,12 @@ The final report PDF and the presentation file are checked into the `deliverable
 
 ## 1. Problem Statement
 
-A 2–4 sentence description of the workload, the system being optimized, and *why* the optimization matters. State whether you are targeting **training**, **inference**, or **both**, and identify the bottleneck (compute, memory bandwidth, I/O, communication, etc.) you set out to address.
+Industrial maintenance workflows depend on fast, reliable TSFM forecasting.
+Current MCP tool calls add latency from model loading, data filtering, and inference.
+A naive baseline makes workflows slower and harder to scale across many sensors.
+We profile and optimize the TSFM MCP agent in IBM’s AssetOpsBench benchmark, targeting latency bottlenecks across data quality filtering, model loading, and forecasting inference.
+Goal:
+Reduce per-tool-call and end-to-end workflow latency through three targeted optimizations while preserving forecast quality.
 
 ---
 
@@ -37,10 +42,8 @@ A 2–4 sentence description of the workload, the system being optimized, and *w
 Briefly describe the model(s) and stack you used:
 
 - **Model architecture:** TinyTimeMixer (TTM)
-- **Framework:** PyTorch 2.x / JAX / TensorFlow / vLLM / TGI.
 - **Dataset:** IBM AssetOpsBench - Chiller 6 Sensor Data -> chiller6_june2020_sensordata_couchdb
-- **Custom layers or modifications:** anything you changed from the upstream reference implementation.
-- **Hardware target:** NVIDIA T4 (GCP n1-standard-4 instance)
+- **Hardware:** NVIDIA T4 (GCP n1-standard-4 instance)
 
 ---
 
@@ -48,48 +51,39 @@ Briefly describe the model(s) and stack you used:
 
 Replace the numbers below with your measured values. Add or remove rows to fit your study.
 
-| Metric                       | Baseline | Optimized | Δ (Improvement) |
-| ---------------------------- | -------- | --------- | --------------- |
-| Top-1 Accuracy / Task Metric | XX.XX%   | XX.XX%    | ±X.XX pp        |
-| Inference Latency (p50)      | XX.XX ms | XX.XX ms  | XX% faster      |
-| Inference Throughput         | XXX tok/s| XXX tok/s | XX× higher      |
-| Training Time / Epoch        | XX s     | XX s      | XX% faster      |
-| Peak GPU Memory              | XX GB    | XX GB     | XX% less        |
-| Model Size on Disk           | XX MB    | XX MB     | XX% smaller     |
-| Energy / Sample (optional)   | X.XX J   | X.XX J    | XX% less        |
++------------------------------+---------------+---------------+--------------------+
+| Metric                       | Baseline      | Optimized     | Δ (Improvement)    |
++------------------------------+---------------+---------------+--------------------+
+| Workflow Latency (End-to-End)| 43,021 ms     | 13,798 ms     | 68% reduction      |
+| Inference Latency (ttm_fwd)  | ~38,000 ms    | 12,293 ms     | 3.1x faster        |
+| Model Loading Overhead       | 233 ms        | 26 ms         | 9x faster          |
+| Inference Precision          | FP32          | FP32+BF16     | No change          |
+| Peak GPU Memory (9 sensors)  | ~150 MB       | ~300 MB       | 100% more (BF16)   |
+| Model Size (Parameters)      | ~1-5M         | ~1-5M         | No change          |
++------------------------------+---------------+---------------+--------------------+
 
-**Hardware:** [e.g., 1× NVIDIA A100 80GB SXM, CUDA 12.4, PyTorch 2.5, Ubuntu 22.04]
 
-**Headline result (one sentence):** *e.g., "Applying LoRA + 4-bit quantization reduced fine-tuning memory from 38 GB to 9 GB and cut wall-clock training time per epoch by 2.7× on a single A100, with no measurable accuracy degradation on the GLUE benchmark."*
+**Headline result (one sentence):** *Optimizing the TSFM MCP agent through model pre-loading, torch.compile kernel fusion, and GPU placement achieved a 3.3x reduction in total workflow latency (from 43,021 ms to 13,798 ms) while identifying that model caching was the dominant factor in performance gains.*
 
 ---
 
 ## 4. Repository Structure
-
 ```
 .
-├── README.md
+├── HPML_README.md
 ├── LICENSE
 ├── requirements.txt
 ├── configs/                # YAML / JSON configs for every reported experiment
 ├── deliverables/           # Final report (PDF) and final presentation (PPT/PDF) — same files uploaded to CourseWorks
 │   ├── HPML_Final_Report.pdf
 │   └── HPML_Final_Presentation.pptx
-├── scripts/
-│   ├── download_dataset.sh
-│   ├── run_baseline.sh
-│   └── run_optimized.sh
 ├── src/
-│   ├── data/               # Data loading & preprocessing
-│   ├── models/             # Model definitions / wrappers
-│   ├── train.py            # Training entry point
-│   ├── eval.py             # Evaluation entry point
-│   └── profile.py          # Profiling entry point
-├── notebooks/              # Exploratory & analysis notebooks
-├── results/                # Logs, figures, profiler traces (small files only)
-└── docs/                   # Optional: extended methodology, design notes
+│   ├── servers/                  # Server definitions & request handling
+│   │   ├── tsfm/                 # Code that uses the tsfm model
+│   │   │   ├── forecasting.py    # Calls the TTM model and uses it to make predictions
+│   │   │   ├── model_cache.py    # Caches the model to be used by forecasting.py
+│   │   │   └── main.py           # tsfm initialization
 ```
-
 ---
 
 ## 5. Reproducibility Instructions
