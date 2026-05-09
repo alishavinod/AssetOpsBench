@@ -65,7 +65,8 @@ def preload_and_compile_models(model_names: list[str], model_dir: str) -> None:
                                                                )
             
             # Compile with reduce-overhead mode for maximum inference speedup
-            model.to(device="cuda", dtype=torch.bfloat16)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            logger.info(f"Using device: {device}")
             model.eval()
 
             # Now compile the bf16 version
