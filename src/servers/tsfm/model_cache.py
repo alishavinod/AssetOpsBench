@@ -64,11 +64,12 @@ def preload_and_compile_models(model_names: list[str], model_dir: str) -> None:
                                                                , prediction_filter_length=_COMPILED_MODEL_CONFIGS[model_name]["prediction_length"]
                                                                )
             
-            # Move to eval mode
-            model.eval()
-            
             # Compile with reduce-overhead mode for maximum inference speedup
-            logger.info(f"Compiling model: {model_name} with torch.compile(mode='reduce-overhead')")
+            model.to(device="cuda", dtype=torch.bfloat16)
+            model.eval()
+
+            # Now compile the bf16 version
+            logger.info(f"Compiling model {model_name} in BF16 mode...")
             compiled_model = torch.compile(model, mode='reduce-overhead')
             
             # Store compiled model
