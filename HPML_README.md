@@ -1,4 +1,16 @@
-# HPML Final Project: [Project Title]
+ __    __  _______   __       __  __              ________  __                      __        _______                                                     __     
+|  \  |  \|       \ |  \     /  \|  \            |        \|  \                    |  \      |       \                                                   |  \    
+| $$  | $$| $$$$$$$\| $$\   /  $$| $$            | $$$$$$$$ \$$ _______    ______  | $$      | $$$$$$$\  ______    ______       __   ______    _______  _| $$_   
+| $$__| $$| $$__/ $$| $$$\ /  $$$| $$            | $$__    |  \|       \  |      \ | $$      | $$__/ $$ /      \  /      \     |  \ /      \  /       \|   $$ \  
+| $$    $$| $$    $$| $$$$\  $$$$| $$            | $$  \   | $$| $$$$$$$\  \$$$$$$\| $$      | $$    $$|  $$$$$$\|  $$$$$$\     \$$|  $$$$$$\|  $$$$$$$ \$$$$$$  
+| $$$$$$$$| $$$$$$$ | $$\$$ $$ $$| $$            | $$$$$   | $$| $$  | $$ /      $$| $$      | $$$$$$$ | $$   \$$| $$  | $$    |  \| $$    $$| $$        | $$ __ 
+| $$  | $$| $$      | $$ \$$$| $$| $$_____       | $$      | $$| $$  | $$|  $$$$$$$| $$      | $$      | $$      | $$__/ $$    | $$| $$$$$$$$| $$_____   | $$|  \
+| $$  | $$| $$      | $$  \$ | $$| $$     \      | $$      | $$| $$  | $$ \$$    $$| $$      | $$      | $$       \$$    $$    | $$ \$$     \ \$$     \   \$$  $$
+ \$$   \$$ \$$       \$$      \$$ \$$$$$$$$       \$$       \$$ \$$   \$$  \$$$$$$$ \$$       \$$       \$$        \$$$$$$__   | $$  \$$$$$$$  \$$$$$$$    \$$$$ 
+                                                                                                                         |  \__/ $$                              
+                                                                                                                          \$$    $$                              
+                                                                                                                           \$$$$$$                               
+# HPML Final Project: [Performance Optimization of the TSFM Agent in an Industrial Agentic Benchmark]
 
 > **Course:** High Performance Machine Learning
 > **Semester:** Spring 2026
@@ -88,40 +100,72 @@ Replace the numbers below with your measured values. Add or remove rows to fit y
 
 ## 5. Reproducibility Instructions
 
-### A. Environment Setup
+### 1. Environment Setup
 
 ```bash
 # Clone
-git clone https://github.com/<org>/<repo>.git
+git clone https://github.com/alishavinod/AssetOpsBench.git
 cd <repo>
-
-# (Recommended) create a clean Python environment
-python -m venv .venv && source .venv/bin/activate
-
-# Install pinned dependencies
-pip install -r requirements.txt
 ```
 
-**System requirements:** Python 3.10+, CUDA 12.x, ≥ 24 GB GPU memory for [model X]. See `requirements.txt` for pinned package versions.
+## 2. Environment Variables
 
-### B. Experiment Tracking Dashboard
+**WatsonX** — plan-execute runner (when `--model-id` starts with `watsonx/`)
 
-Public experiment-tracking dashboard with training and evaluation metrics, system profiling, and baseline vs. optimized comparisons:
+| Variable             | Default                             | Description                 |
+| -------------------- | ----------------------------------- | --------------------------- |
+| `WATSONX_APIKEY`     | _(required)_                        | IBM WatsonX API key         |
+| `WATSONX_PROJECT_ID` | _(required)_                        | IBM WatsonX project ID      |
 
-> **🔗 Dashboard:** [https://wandb.ai/&lt;team&gt;/&lt;project&gt;](https://wandb.ai/team/project)
->
-> *Platform used:* [Weights & Biases / MLflow / TensorBoard / Comet / Neptune / other]
+### 3. Install dependencies
 
-Verify the link opens in an incognito browser. The dashboard includes a curated **report** that walks through the optimization story. If your platform does not support public links (e.g., self-hosted MLflow), a static export is committed under `results/dashboard/` instead.
+Run from the **repo root**:
+
+```bash
+uv sync
+```
+
+`uv sync` creates a virtual environment at `.venv/`, installs all dependencies, and registers the CLI entry points (`plan-execute`, `*-mcp-server`). You can either prefix commands with `uv run` (no activation needed) or activate the venv once for your shell session:
+
+```bash
+source .venv/bin/activate   # macOS / Linux
+```
+
+### 4. Configure environment
+
+Copy `.env.public` to `.env` and fill in the required values (see [Environment Variables](#environment-variables)):
+
+```bash
+cp .env.public .env
+# Then edit .env and set WATSONX_APIKEY, WATSONX_PROJECT_ID
+# CouchDB defaults work out of the box with the Docker setup
+```
+
+### 5. Start CouchDB
+
+```bash
+docker compose -f src/couchdb/docker-compose.yaml up -d
+```
+
+Verify CouchDB is running:
+
+```bash
+curl -X GET http://localhost:5984/
+```
+
+### 6. Run servers
+
+> **Note:** MCP servers use stdio transport — they are spawned on-demand by clients (Claude Desktop, `plan-execute`) and exit when the client disconnects. They are not long-running daemons.
+
+To start a server manually for testing:
+
+```bash
+uv run plan-execute "Run TSFMAgent forecasting on 'src/tmp/assetopsbench/sample_data/chiller6_june2020_sensordata_couchdb.csv' using model_checkpoint 'ttm_96_28', timestamp_column 'timestamp', target_columns 'Chiller 6 Tonnage', forecast_horizon 96, frequency_sampling '15_minutes'"
+```
 
 ### C. Dataset
 
-```bash
-bash scripts/download_dataset.sh
-# or follow the manual instructions in docs/data.md
-```
-
-The dataset is *not* committed to the repository. The script fetches it from [source] (license: [license]) and stores it under `data/`.
+The dataset is committed to the repository. The script fetches it from [source] (license: [license]) and stores it under `data/`.
 
 ### D. Training
 
@@ -197,16 +241,15 @@ A short narrative (3–6 bullets) summarizing what you found. Include 1–2 repr
 
 **Did your team use any AI tool in completing this project?**
 
-- [ ] No, we did not use any AI tool.
-- [ ] Yes, we used AI assistance as described below.
+- [X] Yes, we used AI assistance as described below.
 
-**Tool(s) used:** *e.g., ChatGPT, Claude, GitHub Copilot, Cursor*
+**Tool(s) used:** *Claude, Copilot*
 
-**Specific purpose:** *e.g., debugged a CUDA OOM error, clarified SM occupancy, polished prose in the report's introduction*
+**Specific purpose:** *polished prose in the report/presentation, research, dependency debugging*
 
 **Sections affected:** *e.g., src/profile.py setup, README §6 results narrative, report §V Discussion*
 
-**How we verified correctness:** *e.g., re-ran every reported experiment ourselves; confirmed profiler-trace interpretations against the raw traces in results/; rewrote AI-suggested code in our own words and confirmed it produces the same numbers as the version we hand-wrote.*
+**How we verified correctness:** *re-ran every reported experiment ourselves*
 
 By submitting this project, the team confirms that the analysis, interpretations, and conclusions are our own, and that any AI assistance is fully disclosed above. The same disclosure block appears as an appendix in the final report.
 
@@ -230,7 +273,7 @@ If you build on this work, please cite:
 
 ### Contact
 
-Open a GitHub Issue or email *[team-contact@columbia.edu]*.
+Open a GitHub Issue or email *ma4624@columbia.edu]*.
 
 ---
 
