@@ -1,22 +1,20 @@
-                                          ,--,                                                                                                                                           
-        ,--,,-.----.             ____  ,---.'|                                                                      ,-.----.                                                             
-      ,--.'|\    /  \          ,'  , `.|   | :               ,---,.                                  ,--,           \    /  \                                                    ___     
-   ,--,  | :|   :    \      ,-+-,.' _ |:   : |             ,'  .' |  ,--,                          ,--.'|           |   :    \                                                 ,--.'|_   
-,---.'|  : '|   |  .\ :  ,-+-. ;   , |||   ' :           ,---.'   |,--.'|         ,---,            |  | :           |   |  .\ :  __  ,-.   ,---.      .--.                     |  | :,'  
-|   | : _' |.   :  |: | ,--.'|'   |  ;|;   ; '           |   |   .'|  |,      ,-+-. /  |           :  : '           .   :  |: |,' ,'/ /|  '   ,'\   .--,`|                     :  : ' :  
-:   : |.'  ||   |   \ :|   |  ,', |  ':'   | |__         :   :  :  `--'_     ,--.'|'   |  ,--.--.  |  ' |           |   |   \ :'  | |' | /   /   |  |  |.    ,---.     ,---. .;__,'  /   
-|   ' '  ; :|   : .   /|   | /  | |  |||   | :.'|        :   |  |-,,' ,'|   |   |  ,"' | /       \ '  | |           |   : .   /|  |   ,'.   ; ,. :  '--`_   /     \   /     \|  |   |    
-'   |  .'. |;   | |`-' '   | :  | :  |,'   :    ;        |   :  ;/|'  | |   |   | /  | |.--.  .-. ||  | :           ;   | |`-' '  :  /  '   | |: :  ,--,'| /    /  | /    / ':__,'| :    
-|   | :  | '|   | ;    ;   . |  ; |--' |   |  ./         |   |   .'|  | :   |   | |  | | \__\/: . .'  : |__         |   | ;    |  | '   '   | .; :  |  | '.    ' / |.    ' /   '  : |__  
-'   : |  : ;:   ' |    |   : |  | ,    ;   : ;           '   :  '  '  : |__ |   | |  |/  ," .--.; ||  | '.'|        :   ' |    ;  : |   |   :    |  :  | |'   ;   /|'   ; :__  |  | '.'| 
-|   | '  ,/ :   : :    |   : '  |/     |   ,/            |   |  |  |  | '.'||   | |--'  /  /  ,.  |;  :    ;        :   : :    |  , ;    \   \  / __|  : ''   |  / |'   | '.'| ;  :    ; 
-;   : ;--'  |   | :    ;   | |`-'      '---'             |   :  \  ;  :    ;|   |/     ;  :   .'   \  ,   /         |   | :     ---'      `----'.'__/\_: ||   :    ||   :    : |  ,   /  
-|   ,/      `---'.|    |   ;/                            |   | ,'  |  ,   / '---'      |  ,     .-./---`-'          `---'.|                     |   :    : \   \  /  \   \  /   ---`-'   
-'---'         `---`    '---'                             `----'     ---`-'              `--`---'                      `---`                      \   \  /   `----'    `----'             
-                                                                                                                                                  `--`-'                                 
-
-
-# HPML Final Project: [Performance Optimization of the TSFM Agent in an Industrial Agentic Benchmark]
+                                          ,--,    
+        ,--,,-.----.             ____  ,---.'|    
+      ,--.'|\    /  \          ,'  , `.|   | :    
+   ,--,  | :|   :    \      ,-+-,.' _ |:   : |    
+,---.'|  : '|   |  .\ :  ,-+-. ;   , |||   ' :    
+|   | : _' |.   :  |: | ,--.'|'   |  ;|;   ; '    
+:   : |.'  ||   |   \ :|   |  ,', |  ':'   | |__  
+|   ' '  ; :|   : .   /|   | /  | |  |||   | :.'| 
+'   |  .'. |;   | |`-' '   | :  | :  |,'   :    ; 
+|   | :  | '|   | ;    ;   . |  ; |--' |   |  ./  
+'   : |  : ;:   ' |    |   : |  | ,    ;   : ;    
+|   | '  ,/ :   : :    |   : '  |/     |   ,/     
+;   : ;--'  |   | :    ;   | |`-'      '---'      
+|   ,/      `---'.|    |   ;/                     
+'---'         `---`    '---'                      
+                                                  
+# Final Project: [Performance Optimization of the TSFM Agent in an Industrial Agentic Benchmark]
 
 > **Course:** High Performance Machine Learning
 > **Semester:** Spring 2026
@@ -116,7 +114,7 @@ cd <repo>
 
 ## 2. Environment Variables
 
-**WatsonX** — plan-execute runner (when `--model-id` starts with `watsonx/`)
+**WatsonX** — plan-execute runner (when `--model-id` starts with `watsonx/`) in .env.public
 
 | Variable             | Default                             | Description                 |
 | -------------------- | ----------------------------------- | --------------------------- |
@@ -128,6 +126,7 @@ cd <repo>
 Run from the **repo root**:
 
 ```bash
+
 uv sync
 ```
 
@@ -224,12 +223,10 @@ python src/eval.py --weights checkpoints/best_model.pth
 
 ## 6. Results and Observations
 
-A short narrative (3–6 bullets) summarizing what you found. Include 1–2 representative figures from `results/` directly in this README so a reader gets the gist without opening Wandb.
-
-- *Optimization 1 (e.g., torch.compile + bfloat16):* X% latency reduction, attributable to [reason].
-- *Optimization 2 (e.g., FlashAttention-2):* Y% memory reduction at long context lengths.
-- *Optimization 3 (e.g., paged KV cache):* Z× throughput gain at batch size 32.
-- *What did not work:* [briefly note any optimization that failed or regressed performance, and why you think it failed].
+- *Optimization 1 Model pre-loading + caching: Reduced model loading time from 233ms to 26ms per tool call (9× speedup), by eliminating repeated from_pretrained() disk reads on every MCP invocation.
+- *Optimization 2 torch.compile + Trainer removal: Fusing 19,032 eager-mode CUDA kernel launches and removing the HuggingFace Trainer loop cut ttm_forward from 40,161ms to 16,000ms (2.5× total speedup).
+- *Optimization 3 GPU placement (TF32): Moving the model to CUDA with TF32 precision further reduced ttm_forward to 12,293ms, achieving a 3.3× total speedup over baseline.
+- *What did not work:* bf16 mixed precision: Regressed latency to 15,272ms; TTM's small MLP matrix dimensions don't saturate Tensor Cores, so dtype conversion overhead outweighed any memory bandwidth savings.
 
 ![Baseline vs Optimized latency](results/figures/latency_comparison.png)
 
@@ -237,9 +234,7 @@ A short narrative (3–6 bullets) summarizing what you found. Include 1–2 repr
 
 ## 7. Notes
 
-- Source files live under `src/`, configuration under `configs/`, and scripts under `scripts/`.
-- Trained checkpoints are stored in [GitHub Releases / Hugging Face Hub / external bucket] — see `docs/checkpoints.md`.
-- All secrets (API keys, Wandb tokens) are loaded from environment variables. See `.env.example`.
+- All secrets (API keys, Wandb tokens) are loaded from environment variables. See `.env.public`.
 
 ### AI Use Disclosure
 
