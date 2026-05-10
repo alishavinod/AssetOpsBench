@@ -1,3 +1,4 @@
+```                                          
                                           ,--,    
         ,--,,-.----.             ____  ,---.'|    
       ,--.'|\    /  \          ,'  , `.|   | :    
@@ -13,7 +14,8 @@
 ;   : ;--'  |   | :    ;   | |`-'      '---'      
 |   ,/      `---'.|    |   ;/                     
 '---'         `---`    '---'                      
-                                                  
+```                                                  
+
 # Final Project: [Performance Optimization of the TSFM Agent in an Industrial Agentic Benchmark]
 
 > **Course:** High Performance Machine Learning
