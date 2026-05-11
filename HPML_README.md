@@ -77,8 +77,8 @@ AssetOpsBench/
 │           └── executor.py      # MCP orchestrator
 ├── locustfile.py                # Concurrent load testing
 ├── deliverables/
-│   ├── Team27_HPML_Final_Report.pdf
-│   └── Team27_HPML_Presentation.pdf
+│   ├── HPML_Team27_Final_Project_Presentation.pptx
+│   └── Team27_HPML_Final_Report.pdf
 ├── environment.yml      # Pinned working environment
 ├── LICENSE
 └── README.md
